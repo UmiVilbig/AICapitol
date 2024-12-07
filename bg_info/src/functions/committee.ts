@@ -8,11 +8,11 @@ class Committee {
   constructor() {};
 
   public async start(): Promise<void> {
-    this.loadData();
+    await this.loadData();
     await this.addToDB();
   }
 
-  private loadData(): void {
+  private async loadData(): Promise<void> {
     const data = fs.readFileSync(path.join(__dirname, `../../data/committees.json`), 'utf8');
     this.committee = JSON.parse(data) as ICommittee[];
   }

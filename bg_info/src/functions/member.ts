@@ -8,11 +8,11 @@ class Member {
   constructor() {};
 
   public async start(): Promise<void> {
-    this.loadData();
+    await this.loadData();
     await this.addToDB();
   }
 
-  private loadData(): void {
+  private async loadData(): Promise<void> {
     const data = fs.readFileSync(path.join(__dirname, `../../data/members.json`), 'utf8');
     this.members = JSON.parse(data) as IMember[];
   }
