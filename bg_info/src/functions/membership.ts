@@ -10,6 +10,7 @@ class Membership {
   public async start(): Promise<void> {
     await this.loadData();
     await this.addToDB();
+    console.log('All committee members added to the database');
   }
 
   private async loadData(): Promise<void> {

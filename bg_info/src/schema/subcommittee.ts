@@ -1,7 +1,7 @@
 import * as mongoose from 'mongoose';
 
 const subcommittteeSchema = new mongoose.Schema({
-  name: { type: String, unique: true }, // full name of the congressmen
+  name: { type: String }, // full name of the congressmen
   thomas_id: String, // thomas id
   members: [{
     name: String, // full name of the congressmen

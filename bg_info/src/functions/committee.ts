@@ -10,6 +10,7 @@ class Committee {
   public async start(): Promise<void> {
     await this.loadData();
     await this.addToDB();
+    console.log('All committees added to the database');
   }
 
   private async loadData(): Promise<void> {
@@ -20,7 +21,6 @@ class Committee {
   private async addToDB(): Promise<void> {
     for (const committee of this.committee) {
       const { subcommittees } = committee;
-      console.log(subcommittees);
       const committeeRef = new CommitteeDB({
         name: committee.name,
         type: committee.type,
@@ -30,7 +30,6 @@ class Committee {
         members: [],
       })
       await committeeRef.save();
-      console.log(`Added ${committee.name} to the database`);
       if(subcommittees) {
         subcommittees.forEach(async(subcommittee) => {
           const subCommitteeRef = new Subcommittee({
@@ -39,7 +38,6 @@ class Committee {
             members: [],
           });
           await subCommitteeRef.save();
-          console.log(`Added ${subcommittee.name} to the database`);
         });
       }
     }
