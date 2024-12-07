@@ -18,7 +18,7 @@ class Committee {
   }
 
   private async addToDB(): Promise<void> {
-    this.committee.forEach(async (committee) => {
+    for (const committee of this.committee) {
       const { subcommittees } = committee;
       console.log(subcommittees);
       const committeeRef = new CommitteeDB({
@@ -42,7 +42,7 @@ class Committee {
           console.log(`Added ${subcommittee.name} to the database`);
         });
       }
-    });
+    }
   }
 }
 

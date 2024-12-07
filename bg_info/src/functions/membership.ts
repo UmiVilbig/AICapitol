@@ -18,7 +18,7 @@ class Membership {
   }
 
   private async addToDB(): Promise<void> {
-    Object.keys(this.data).forEach(async (committee) => {
+    for (const committee in this.data) {
       const isSub = committee.search(/\d/) !== -1;
       if(isSub) {
         const subcom = await Subcommittee.findOne({ thomas_id: committee })
@@ -49,7 +49,7 @@ class Membership {
           await com.save();
         }
       }
-    })
+    }
   }
 
   private async updateCongressmen(committeeName: string, bioguide: string): Promise<void> {
