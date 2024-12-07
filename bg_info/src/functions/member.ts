@@ -18,8 +18,9 @@ class Member {
   }
 
   private async addToDB(): Promise<void> {
-    this.members.forEach(async (member) => {
+    for (const member of this.members) {
       const name = member.name.official_full? member.name.official_full : member.name.first + ' ' + member.name.last;
+
       const congressmen = new Congressmen({
         fullName: name,
         first: member.name.first,
@@ -28,10 +29,26 @@ class Member {
         party: member.terms[0].party,
         state: member.terms[0].state,
         committees: []
-      })
+      });
+
       await congressmen.save();
       console.log(`Added ${name} to the database`);
-    });
+    };
+    
+    // this.members.forEach(async (member) => {
+    //   const name = member.name.official_full? member.name.official_full : member.name.first + ' ' + member.name.last;
+    //   const congressmen = new Congressmen({
+    //     fullName: name,
+    //     first: member.name.first,
+    //     last: member.name.last,
+    //     bioguide: member.id.bioguide,
+    //     party: member.terms[0].party,
+    //     state: member.terms[0].state,
+    //     committees: []
+    //   })
+    //   await congressmen.save();
+    //   console.log(`Added ${name} to the database`);
+    // });
     console.log('All members added to the database');
   }
 }
