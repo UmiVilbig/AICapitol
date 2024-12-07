@@ -5,13 +5,11 @@ import { Congressmen, Committee, Subcommittee } from '../schema';
 
 class Membership {
   private data: ICommitteeMembership = {} as ICommitteeMembership;
-  constructor() {
-    this.start();
-  };
+  constructor() {};
 
-  private start(): void {
+  public async start(): Promise<void> {
     this.loadData();
-    this.addToDB();
+    await this.addToDB();
   }
 
   private loadData(): void {
@@ -19,7 +17,7 @@ class Membership {
     this.data = JSON.parse(data) as ICommitteeMembership;
   }
 
-  private addToDB(): void {
+  private async addToDB(): Promise<void> {
     Object.keys(this.data).forEach(async (committee) => {
       const isSub = committee.search(/\d/) !== -1;
       if(isSub) {

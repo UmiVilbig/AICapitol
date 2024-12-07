@@ -5,13 +5,11 @@ import { Committee as CommitteeDB, Subcommittee } from '../schema';
 
 class Committee {
   private committee: ICommittee[] = [];
-  constructor() {
-    this.start();
-  };
+  constructor() {};
 
-  private start(): void {
+  public async start(): Promise<void> {
     this.loadData();
-    this.addToDB();
+    await this.addToDB();
   }
 
   private loadData(): void {
@@ -19,7 +17,7 @@ class Committee {
     this.committee = JSON.parse(data) as ICommittee[];
   }
 
-  private addToDB(): void {
+  private async addToDB(): Promise<void> {
     this.committee.forEach(async (committee) => {
       const { subcommittees } = committee;
       console.log(subcommittees);

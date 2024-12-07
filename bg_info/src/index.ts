@@ -9,9 +9,15 @@ class Main {
   private async start(): Promise<void> {
     await mongoose.connect('mongodb://localhost:27017/insider');
     console.log('Connected to MongoDB');
-    // new Member();
-    // new Committee();
-    new Membership();
+    const initMember = new Member();
+    const initCommittee = new Committee();
+    const initMembership = new Membership();
+
+    await initMember.start();
+    await initCommittee.start();
+    await initMembership.start();
+
+    return process.exit(0);
   }
 }
 

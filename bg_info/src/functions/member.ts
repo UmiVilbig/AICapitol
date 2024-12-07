@@ -5,13 +5,11 @@ import { Congressmen } from '../schema';
 
 class Member {
   private members: IMember[] = [];
-  constructor() {
-    this.start();
-  };
+  constructor() {};
 
-  private start(): void {
+  public async start(): Promise<void> {
     this.loadData();
-    this.addToDB();
+    await this.addToDB();
   }
 
   private loadData(): void {
@@ -19,7 +17,7 @@ class Member {
     this.members = JSON.parse(data) as IMember[];
   }
 
-  private addToDB(): void {
+  private async addToDB(): Promise<void> {
     this.members.forEach(async (member) => {
       const name = member.name.official_full? member.name.official_full : member.name.first + ' ' + member.name.last;
       const congressmen = new Congressmen({
