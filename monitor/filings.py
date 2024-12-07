@@ -1,12 +1,12 @@
 import io
 import pandas
 import re
-import logging
 
 from datetime import date
 from urllib.request import urlopen
 from pypdf import PdfReader
 from webhook import Webhook
+from txInfo import TxInfo
 
 class Filings:
   def __init__(self, db, year, logger):
@@ -23,7 +23,7 @@ class Filings:
     self.endTHead_pattern = r'\$\d+(?:\.\d+)*'
     self.endTx_pattern = r'^F S: (.*)$'
     self.description_pattern = r'D:\s*'
-    self.tx_pattern = r"^(P|S)"
+    self.tx_pattern = r"^(P|S|E)"
     self.date_pattern = r'(\d{2}/\d{2}/\d{4})'
     self.owner_pattern = r'^(DC|JT|SP)\s'
     self.asset_class_pattern = r'\[(.*?)\]'
@@ -52,8 +52,11 @@ class Filings:
       lines = self.pullFiling(docID)
       txs = self.isolateTxs(lines)
       txs = self.parseTxs(txs)
+      txs = self.addDetailsToTx(txs)
       bioguide = self.createTxEntry(txs, row)
-      Webhook().send(txs, row, bioguide)
+      committees = self.congressmen_db.find_one({ "bioguide": bioguide })["committees"]
+      Webhook().send(txs, row, bioguide, committees)
+      
   
   def cleanName(self, name):
     name = re.sub(r'\b(' + '|'.join(self.titles) + r')\.?\s*', '', name, flags=re.IGNORECASE)
@@ -85,6 +88,7 @@ class Filings:
   def filterLatest(self):
     self.df.sort_values(by="FilingDate", ascending=False)
     self.df = self.df[self.df["FilingDate"] == self.today]
+    # self.df = self.df[self.df["FilingDate"] == "11/21/2024"]
     self.df = self.df[self.df["DocID"].astype(str).str.startswith('200')]
 
   def checkTxInDB(self):
@@ -164,6 +168,18 @@ class Filings:
 
     return transactions
   
+  def addDetailsToTx(self, txs):
+    info = TxInfo()
+    today = date.today().strftime('%m/%d/%Y')
+    for tx in txs:
+      tx["BuyPrice"] = info.getPriceOnDate(tx["Ticker"], tx["Bought"])
+      tx["FilePrice"] = info.getPriceOnDate(tx["Ticker"], tx["Filed"])
+      tx["MonitorPrice"] = info.getPriceOnDate(tx["Ticker"], today)
+      tx["Change"] = 100 * ((tx["FilePrice"] - tx["BuyPrice"]) / tx["BuyPrice"])
+      roi30, ytd, sector = info.getDetails(tx["Ticker"])
+      tx["30DC"], tx["YTD"], tx["Sector"] = roi30, ytd, sector
+    return txs
+
   # returns the thomas_id of the congressmen
   def createTxEntry(self, txs, row):
     member = self.findMember(row["First"], row["Last"])
