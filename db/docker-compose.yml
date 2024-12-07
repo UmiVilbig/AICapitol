@@ -13,12 +13,12 @@ services:
     volumes:
       - ./data:/data/db
     
-  bg_info:
-    image: bg_info:1.0
-    networks:
-      - insider
-    depends_on:
-      - mongo
+  # bg_info:
+  #   image: bg_info:1.0
+  #   networks:
+  #     - insider
+  #   depends_on:
+  #     - mongo
 
   insider:
     image: insider:1.0

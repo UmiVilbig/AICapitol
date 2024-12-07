@@ -1,6 +1,7 @@
 import io
 import pandas
 import re
+import logging
 
 from datetime import date
 from urllib.request import urlopen
@@ -8,7 +9,8 @@ from pypdf import PdfReader
 from webhook import Webhook
 
 class Filings:
-  def __init__(self, db, year):
+  def __init__(self, db, year, logger):
+    self.logger = logger
     self.trades_db = db.trades
     self.congressmen_db = db.congressmens
     self.today = date.today().strftime("%m/%d/^y")
@@ -42,7 +44,7 @@ class Filings:
     self.checkTxInDB()
 
     if self.df.empty:
-      print("no new filings")
+      self.logger.info("No new filings today")
       return
     
     for i, row in self.df.iterrows():
