@@ -15,7 +15,7 @@ class Webhook:
         "embeds": [
           {
             "title": "{name} Transaction!",
-            "description": "**__🚨 NOT FINANCIAL ADVICE DYOR 🚨__**\n```\n{transaction}\n```\n**__🤑 Price Details__**\n```\n{price}\n```\n**__🔍Company Details__**\n```\n{details}\n```\n**__🐱‍👤Governance__**\n{governance}\n\n📏 Size Guide\n```Size     From            To\n1S       $1,001       -  $15,000\n2S       $15,001      -  $50,000\n3S       $50,001      -  $100,000\n1L       $100,001     -  $250,000\n2L       $250,001     -  $500,000\n3L       $500,001     -  $1,000,000\n1XL      $1,000,001   -  $5,000,000\n2XL      $5,000,001   -  $25,000,000\n3XL      $25,000,001  -  $50,000,000\nXXL      $50,000,000+\n```",
+            "description": "**__🚨 NOT FINANCIAL ADVICE DYOR 🚨__**\n```\n{transaction}\n```\n**__🤑 Price Details__**\n```\n{price}\n```\n**__🔍Company Details__**\n```\n{details}\n```\n**__🐱‍👤Governance__**\n{governance}\n\n",
             "color": None,
             "thumbnail": {
               "url": "https://www.congress.gov/img/member/{bioguide}_200.jpg"
