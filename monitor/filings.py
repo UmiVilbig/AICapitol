@@ -7,6 +7,8 @@ from urllib.request import urlopen
 from pypdf import PdfReader
 from webhook import Webhook
 from txInfo import TxInfo
+from fuzzywuzzy import fuzz
+from utility import closestWeekday
 
 class Filings:
   def __init__(self, db, year, logger):
@@ -28,6 +30,7 @@ class Filings:
     self.owner_pattern = r'^(DC|JT|SP)\s'
     self.asset_class_pattern = r'\[(.*?)\]'
     self.amount_pattern = r'\$(\d{1,3}(,\d{3})*(\.\d{2})?)\s*-\s*\$(\d{1,3}(,\d{3})*(\.\d{2})?)|over\s*\$50,000,000'
+    self.knownMissingMembers = ["'Michael  Collins'"]
 
   def start(self):
     with urlopen(self.url) as response:
@@ -54,8 +57,8 @@ class Filings:
       txs = self.parseTxs(txs)
       txs = self.addDetailsToTx(txs)
       bioguide = self.createTxEntry(txs, row)
-      committees = self.congressmen_db.find_one({ "bioguide": bioguide })["committees"]
-      Webhook().send(txs, row, bioguide, committees)
+      # committees = self.congressmen_db.find_one({ "bioguide": bioguide })["committees"]
+      # Webhook().send(txs, row, bioguide, committees)
       
   
   def cleanName(self, name):
@@ -76,18 +79,46 @@ class Filings:
     member = self.congressmen_db.find_one({ "first": first, "last": last })
     if member:
       return member
-    first = first.split(" ", "")[0]
-    last = last.split(" ", "")[0]
+    first = first.split(" ")[0]
+    last = last.split(" ")[0]
     member = self.congressmen_db.find_one({ "first": first, "last": last })
     if member:
       return member
+    member = self.congressmen_db.find({ "last": last })
+    found = False
+    print(f"could not use find_one query and switching to Jaro-Winkler Distnace for {first + last}")
+    # self.logger.info(f"could not use find_one query and switching to Jaro-Winkler Distnace for {fullName}")
+    for item in member:
+      if fuzz.partial_ratio(first, item["first"]) > 65:
+        # self.logger.info(f"Used the first name from distance and writing to {member["fullName"]} doc")
+        print(f"Used the first name from distance and writing to {item["fullName"]} doc")
+        member = item
+        found = True
+        break
+      else:
+        print(f"Distance too far {fuzz.partial_ratio(first, item["first"])}")
+    if member and found:
+      return member
+    # last resort
+    member = self.congressmen_db.find({ "first": first })
+    for item in member:
+      if fuzz.partial_ratio(last, item["last"]) > 65:
+        # self.logger.info(f"Used the first name from distance and writing to {member["fullName"]} doc")
+        print(f"Used the first name from distance and writing to {item["fullName"]} doc")
+        member = item
+        found = True
+        break
+      else:
+        print(f"Distance too far {fuzz.partial_ratio(last, item["last"])}")
+    if member and found:
+      return member
     else:
-      print(first, last)
-      raise "Problem finding member"
+      return None
+      # raise "Could not find member with a close enough distance"
 
   def filterLatest(self):
     self.df.sort_values(by="FilingDate", ascending=False)
-    self.df = self.df[self.df["FilingDate"] == self.today]
+    # self.df = self.df[self.df["FilingDate"] == self.today]
     # self.df = self.df[self.df["FilingDate"] == "11/21/2024"]
     self.df = self.df[self.df["DocID"].astype(str).str.startswith('200')]
 
@@ -170,29 +201,51 @@ class Filings:
   
   def addDetailsToTx(self, txs):
     info = TxInfo()
-    today = date.today().strftime('%m/%d/%Y')
+    today = closestWeekday(date.today()).strftime('%m/%d/%Y')
     for tx in txs:
+      if not tx["Ticker"]:
+        print(f"Problem parsing tx for ticker ignoring the issue for now")
+        tx = self.tempValues(tx)
+        continue
       tx["BuyPrice"] = info.getPriceOnDate(tx["Ticker"], tx["Bought"])
-      tx["FilePrice"] = info.getPriceOnDate(tx["Ticker"], tx["Filed"])
+      tx["FilePrice"] = info.getPriceOnDate(tx["Ticker"], closestWeekday(tx["Filed"]))
       tx["MonitorPrice"] = info.getPriceOnDate(tx["Ticker"], today)
-      tx["Change"] = 100 * ((tx["FilePrice"] - tx["BuyPrice"]) / tx["BuyPrice"])
+      if tx["BuyPrice"] and tx["FilePrice"]:
+        tx["Change"] = 100 * ((tx["FilePrice"] - tx["BuyPrice"]) / tx["BuyPrice"])
+      else:
+        tx["Change"] = float('nan')
       roi30, ytd, sector = info.getDetails(tx["Ticker"])
       tx["30DC"], tx["YTD"], tx["Sector"] = roi30, ytd, sector
     return txs
-
+      
   # returns the thomas_id of the congressmen
   def createTxEntry(self, txs, row):
     member = self.findMember(row["First"], row["Last"])
+    fullName, bioguide = "", ""
+    if member:
+      fullName = member["fullName"]
+      bioguide = member["bioguide"]
     entry = {
       "id": row["DocID"],
       "txs": txs,
-      "member": member["fullName"],
+      "member": fullName,
       "date": row["FilingDate"]
     }
     _id = self.trades_db.insert_one(entry)
     _id = _id.inserted_id
-    self.congressmen_db.update_one(
-      {"_id": member["_id"]},
-      {"$push": {"txs": _id}}
-    )
-    return member["bioguide"]
+    if(member):
+      self.congressmen_db.update_one(
+        {"_id": member["_id"]},
+        {"$push": {"txs": _id}}
+      )
+    return bioguide
+  
+  def tempValues(self, tx):
+    tx["BuyPrice"] = float('nan')
+    tx["FilePrice"] = float('nan')
+    tx["MonitorPrice"] = float('nan')
+    tx["Change"] = float('nan')
+    tx["30DC"] = float('nan')
+    tx["YTD"] = float('nan')
+    tx["Sector"] = None
+    return tx
