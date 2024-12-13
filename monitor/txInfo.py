@@ -1,5 +1,7 @@
 import yfinance as yf
 import pandas as pd
+import math
+import json
 
 from datetime import datetime, date, timedelta
 from utility import closestWeekday
@@ -20,21 +22,28 @@ class TxInfo:
     return round(avg, 2)
   
   def getDetails(self, ticker):
-    info = yf.Ticker(ticker).get_info()
-    today = closestWeekday(date.today()).strftime('%m/%d/%Y')
-    lastMonth = (date.today() - timedelta(days=30)).strftime('%m/%d/%Y')
-    today = self.getPriceOnDate(ticker, today)
-    lastMonth = self.getPriceOnDate(ticker, lastMonth)
-    roi30 = 100 * ((today - lastMonth) / lastMonth)
-    if '52WeekChange' in info.keys():
-      ytd = info["52WeekChange"] * 100
-    else:
-      ytd = float('nan')
-    if 'sector' in info.keys():
-      sector = info["sector"]
-    else:
-      sector = None
-    return round(roi30, 2), round(ytd, 2), sector
+    try:
+      info = yf.Ticker(ticker).get_info()
+      today = closestWeekday(date.today()).strftime('%m/%d/%Y')
+      lastMonth = (date.today() - timedelta(days=30)).strftime('%m/%d/%Y')
+      today = self.getPriceOnDate(ticker, today)
+      lastMonth = self.getPriceOnDate(ticker, lastMonth)
+      if not math.isclose(lastMonth, 0.0):
+        roi30 = 100 * ((today - lastMonth) / lastMonth)
+      else: 
+        roi30 = float('nan')
+      if '52WeekChange' in info.keys():
+        ytd = info["52WeekChange"] * 100
+      else:
+        ytd = float('nan')
+      if 'sector' in info.keys():
+        sector = info["sector"]
+      else:
+        sector = None
+      return round(roi30, 2), round(ytd, 2), sector
+    except json.JSONDecodeError as e:
+      print(f"[ERROR] JSON parse error retrying the function")
+      return self.getDetails(ticker)
     
   def convertDateFormat(self, date, delta = 0):
     if type(date) is not str:

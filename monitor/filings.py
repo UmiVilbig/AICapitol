@@ -1,6 +1,7 @@
 import io
 import pandas
 import re
+import os
 
 from datetime import date
 from urllib.request import urlopen
@@ -9,6 +10,8 @@ from webhook import Webhook
 from txInfo import TxInfo
 from fuzzywuzzy import fuzz
 from utility import closestWeekday
+from playsound import playsound
+from error import Error
 
 class Filings:
   def __init__(self, db, year, logger):
@@ -32,6 +35,14 @@ class Filings:
     self.amount_pattern = r'\$(\d{1,3}(,\d{3})*(\.\d{2})?)\s*-\s*\$(\d{1,3}(,\d{3})*(\.\d{2})?)|over\s*\$50,000,000'
     self.knownMissingMembers = ["'Michael  Collins'"]
 
+    # EDGE CASES
+    self.filingInTx = "Filing ID #"
+    self.orderTypeFcked = r"[A-Za-z]+[PSE](?=\s\d)|\)?[PSE](?=\s\d)"
+    self.orderTypeFckedParse = r"([A-Za-z]*|[^\w\s]*)([PSE])"
+    self.tHeaders = ["Type", "Date Notification", "Date", "Amount Cap.", "Gains >", "$200?"]
+    self.subHolding = "S O: "
+    self.exact_amount = r'\$(\d{1,3}(,\d{3})*(\.\d{2})?)'
+
   def start(self):
     with urlopen(self.url) as response:
       data_in_memory = io.StringIO(response.read().decode())
@@ -51,12 +62,18 @@ class Filings:
       return
     
     for i, row in self.df.iterrows():
-      docID = row["DocID"]
-      lines = self.pullFiling(docID)
-      txs = self.isolateTxs(lines)
-      txs = self.parseTxs(txs)
-      txs = self.addDetailsToTx(txs)
-      bioguide = self.createTxEntry(txs, row)
+      try:
+        docID = row["DocID"]
+        lines = self.pullFiling(docID)
+        txs = self.isolateTxs(lines)
+        txs = self.parseTxs(txs)
+        txs = self.addDetailsToTx(txs)
+        bioguide = self.createTxEntry(txs, row)
+        current_dir = os.getcwd()
+        playsound(f"{current_dir}\\done.mp3")
+      except Exception as e:
+        Error().notify(e, docID)
+
       # committees = self.congressmen_db.find_one({ "bioguide": bioguide })["committees"]
       # Webhook().send(txs, row, bioguide, committees)
       
@@ -149,14 +166,34 @@ class Filings:
       if re.search(self.endTHead_pattern, line):
         lines = lines[i + 1:]
         break
+
+    # in case of multiple pages
+    for header in self.tHeaders:
+      while header in lines:
+        lines.remove(header)
+
     tx, txs = "", []
     for i, line in enumerate(lines):
       if re.search(self.endTx_pattern, line):
+        tx = tx.replace("ID Owner Asset Transaction", "")
         txs.append(tx)
         tx = ""
         continue
       if not re.search(self.description_pattern, line):
-        tx += line
+        if not self.filingInTx in line:
+          match = re.search(self.orderTypeFcked, tx)
+          if match:
+            prefix, suffix = tx[:match.start()], tx[match.end():]
+            match_str = match.group()
+            match = re.match(self.orderTypeFckedParse, match_str)
+            word, orderType = match.group(1), match.group(2)
+            if word == "":
+              tx += line
+            else:
+              tx = prefix + word + " " + line + orderType + suffix
+          else:
+            if not self.subHolding in line:
+              tx += line
     return txs
 
   def parseTxs(self, txs):
@@ -165,25 +202,35 @@ class Filings:
       asset = re.search(self.asset_class_pattern, tx)
       if not asset:
         continue
+
       owner = re.search(self.owner_pattern, tx)
       if owner and owner.group(0):
-        tx = tx.split(owner.group(0))[1:][0]
+        tx = tx.replace(owner.group(0), "")
+
       asset_class = asset.group(1)
       if asset_class != self.stockCode:
         break
+
       stock = tx.split(f"[{asset_class}]")[0]
       ticker = re.search(self.ticker_pattern, stock)
       if ticker:
         ticker = ticker.group()[1:-1]
-      tx = tx.split(f"[{asset_class}]")[1:][0]
+      tx = tx.replace(f"{stock}", "")
+      tx = tx.replace(f"[{asset_class}]", "")
+
       # sometimes the first char is a space and causes error so remove it
       if tx[0] == " ":
         tx = tx[1:]
+
       orderType = re.search(self.tx_pattern, tx)
       if orderType:
         orderType = orderType.group(0)
       dates = re.findall(self.date_pattern, tx)
-      amount = re.search(self.amount_pattern, tx).group(0)
+      amount = re.search(self.amount_pattern, tx)
+      if not amount:
+        amount = re.search(self.exact_amount, tx)
+      if amount:
+        amount = amount.group(0)
 
       # validate the fields
       tx = {
