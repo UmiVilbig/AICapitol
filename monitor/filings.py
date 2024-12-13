@@ -10,7 +10,6 @@ from webhook import Webhook
 from txInfo import TxInfo
 from fuzzywuzzy import fuzz
 from utility import closestWeekday
-from playsound import playsound
 from error import Error
 
 class Filings:

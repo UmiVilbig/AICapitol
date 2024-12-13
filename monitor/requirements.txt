@@ -4,3 +4,4 @@ urllib3==2.2.3
 requests==2.32.3
 pymongo==4.10.1
 yfinance==0.2.50
+fuzzywuzzy==0.18.0
