@@ -135,7 +135,7 @@ class Filings:
 
   def filterLatest(self):
     self.df.sort_values(by="FilingDate", ascending=False)
-    # self.df = self.df[self.df["FilingDate"] == self.today]
+    self.df = self.df[self.df["FilingDate"] == self.today]
     # self.df = self.df[self.df["FilingDate"] == "11/21/2024"]
     self.df = self.df[self.df["DocID"].astype(str).str.startswith('200')]
 
