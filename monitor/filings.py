@@ -1,12 +1,17 @@
 import io
 import pandas
 import re
+import os
 
 from datetime import date
 from urllib.request import urlopen
 from pypdf import PdfReader
 from webhook import Webhook
 from txInfo import TxInfo
+from fuzzywuzzy import fuzz
+from utility import closestWeekday
+from playsound import playsound
+from error import Error
 
 class Filings:
   def __init__(self, db, year, logger):
@@ -28,6 +33,15 @@ class Filings:
     self.owner_pattern = r'^(DC|JT|SP)\s'
     self.asset_class_pattern = r'\[(.*?)\]'
     self.amount_pattern = r'\$(\d{1,3}(,\d{3})*(\.\d{2})?)\s*-\s*\$(\d{1,3}(,\d{3})*(\.\d{2})?)|over\s*\$50,000,000'
+    self.knownMissingMembers = ["'Michael  Collins'"]
+
+    # EDGE CASES
+    self.filingInTx = "Filing ID #"
+    self.orderTypeFcked = r"[A-Za-z]+[PSE](?=\s\d)|\)?[PSE](?=\s\d)"
+    self.orderTypeFckedParse = r"([A-Za-z]*|[^\w\s]*)([PSE])"
+    self.tHeaders = ["Type", "Date Notification", "Date", "Amount Cap.", "Gains >", "$200?"]
+    self.subHolding = "S O: "
+    self.exact_amount = r'\$(\d{1,3}(,\d{3})*(\.\d{2})?)'
 
   def start(self):
     with urlopen(self.url) as response:
@@ -48,14 +62,20 @@ class Filings:
       return
     
     for i, row in self.df.iterrows():
-      docID = row["DocID"]
-      lines = self.pullFiling(docID)
-      txs = self.isolateTxs(lines)
-      txs = self.parseTxs(txs)
-      txs = self.addDetailsToTx(txs)
-      bioguide = self.createTxEntry(txs, row)
-      committees = self.congressmen_db.find_one({ "bioguide": bioguide })["committees"]
-      Webhook().send(txs, row, bioguide, committees)
+      try:
+        docID = row["DocID"]
+        lines = self.pullFiling(docID)
+        txs = self.isolateTxs(lines)
+        txs = self.parseTxs(txs)
+        txs = self.addDetailsToTx(txs)
+        bioguide = self.createTxEntry(txs, row)
+        current_dir = os.getcwd()
+        playsound(f"{current_dir}\\done.mp3")
+      except Exception as e:
+        Error().notify(e, docID)
+
+      # committees = self.congressmen_db.find_one({ "bioguide": bioguide })["committees"]
+      # Webhook().send(txs, row, bioguide, committees)
       
   
   def cleanName(self, name):
@@ -76,18 +96,46 @@ class Filings:
     member = self.congressmen_db.find_one({ "first": first, "last": last })
     if member:
       return member
-    first = first.split(" ", "")[0]
-    last = last.split(" ", "")[0]
+    first = first.split(" ")[0]
+    last = last.split(" ")[0]
     member = self.congressmen_db.find_one({ "first": first, "last": last })
     if member:
       return member
+    member = self.congressmen_db.find({ "last": last })
+    found = False
+    print(f"could not use find_one query and switching to Jaro-Winkler Distnace for {first + last}")
+    # self.logger.info(f"could not use find_one query and switching to Jaro-Winkler Distnace for {fullName}")
+    for item in member:
+      if fuzz.partial_ratio(first, item["first"]) > 65:
+        # self.logger.info(f"Used the first name from distance and writing to {member["fullName"]} doc")
+        print(f"Used the first name from distance and writing to {item["fullName"]} doc")
+        member = item
+        found = True
+        break
+      else:
+        print(f"Distance too far {fuzz.partial_ratio(first, item["first"])}")
+    if member and found:
+      return member
+    # last resort
+    member = self.congressmen_db.find({ "first": first })
+    for item in member:
+      if fuzz.partial_ratio(last, item["last"]) > 65:
+        # self.logger.info(f"Used the first name from distance and writing to {member["fullName"]} doc")
+        print(f"Used the first name from distance and writing to {item["fullName"]} doc")
+        member = item
+        found = True
+        break
+      else:
+        print(f"Distance too far {fuzz.partial_ratio(last, item["last"])}")
+    if member and found:
+      return member
     else:
-      print(first, last)
-      raise "Problem finding member"
+      return None
+      # raise "Could not find member with a close enough distance"
 
   def filterLatest(self):
     self.df.sort_values(by="FilingDate", ascending=False)
-    self.df = self.df[self.df["FilingDate"] == self.today]
+    # self.df = self.df[self.df["FilingDate"] == self.today]
     # self.df = self.df[self.df["FilingDate"] == "11/21/2024"]
     self.df = self.df[self.df["DocID"].astype(str).str.startswith('200')]
 
@@ -118,14 +166,34 @@ class Filings:
       if re.search(self.endTHead_pattern, line):
         lines = lines[i + 1:]
         break
+
+    # in case of multiple pages
+    for header in self.tHeaders:
+      while header in lines:
+        lines.remove(header)
+
     tx, txs = "", []
     for i, line in enumerate(lines):
       if re.search(self.endTx_pattern, line):
+        tx = tx.replace("ID Owner Asset Transaction", "")
         txs.append(tx)
         tx = ""
         continue
       if not re.search(self.description_pattern, line):
-        tx += line
+        if not self.filingInTx in line:
+          match = re.search(self.orderTypeFcked, tx)
+          if match:
+            prefix, suffix = tx[:match.start()], tx[match.end():]
+            match_str = match.group()
+            match = re.match(self.orderTypeFckedParse, match_str)
+            word, orderType = match.group(1), match.group(2)
+            if word == "":
+              tx += line
+            else:
+              tx = prefix + word + " " + line + orderType + suffix
+          else:
+            if not self.subHolding in line:
+              tx += line
     return txs
 
   def parseTxs(self, txs):
@@ -134,25 +202,35 @@ class Filings:
       asset = re.search(self.asset_class_pattern, tx)
       if not asset:
         continue
+
       owner = re.search(self.owner_pattern, tx)
       if owner and owner.group(0):
-        tx = tx.split(owner.group(0))[1:][0]
+        tx = tx.replace(owner.group(0), "")
+
       asset_class = asset.group(1)
       if asset_class != self.stockCode:
         break
+
       stock = tx.split(f"[{asset_class}]")[0]
       ticker = re.search(self.ticker_pattern, stock)
       if ticker:
         ticker = ticker.group()[1:-1]
-      tx = tx.split(f"[{asset_class}]")[1:][0]
+      tx = tx.replace(f"{stock}", "")
+      tx = tx.replace(f"[{asset_class}]", "")
+
       # sometimes the first char is a space and causes error so remove it
       if tx[0] == " ":
         tx = tx[1:]
+
       orderType = re.search(self.tx_pattern, tx)
       if orderType:
         orderType = orderType.group(0)
       dates = re.findall(self.date_pattern, tx)
-      amount = re.search(self.amount_pattern, tx).group(0)
+      amount = re.search(self.amount_pattern, tx)
+      if not amount:
+        amount = re.search(self.exact_amount, tx)
+      if amount:
+        amount = amount.group(0)
 
       # validate the fields
       tx = {
@@ -170,29 +248,51 @@ class Filings:
   
   def addDetailsToTx(self, txs):
     info = TxInfo()
-    today = date.today().strftime('%m/%d/%Y')
+    today = closestWeekday(date.today()).strftime('%m/%d/%Y')
     for tx in txs:
+      if not tx["Ticker"]:
+        print(f"Problem parsing tx for ticker ignoring the issue for now")
+        tx = self.tempValues(tx)
+        continue
       tx["BuyPrice"] = info.getPriceOnDate(tx["Ticker"], tx["Bought"])
-      tx["FilePrice"] = info.getPriceOnDate(tx["Ticker"], tx["Filed"])
+      tx["FilePrice"] = info.getPriceOnDate(tx["Ticker"], closestWeekday(tx["Filed"]))
       tx["MonitorPrice"] = info.getPriceOnDate(tx["Ticker"], today)
-      tx["Change"] = 100 * ((tx["FilePrice"] - tx["BuyPrice"]) / tx["BuyPrice"])
+      if tx["BuyPrice"] and tx["FilePrice"]:
+        tx["Change"] = 100 * ((tx["FilePrice"] - tx["BuyPrice"]) / tx["BuyPrice"])
+      else:
+        tx["Change"] = float('nan')
       roi30, ytd, sector = info.getDetails(tx["Ticker"])
       tx["30DC"], tx["YTD"], tx["Sector"] = roi30, ytd, sector
     return txs
-
+      
   # returns the thomas_id of the congressmen
   def createTxEntry(self, txs, row):
     member = self.findMember(row["First"], row["Last"])
+    fullName, bioguide = "", ""
+    if member:
+      fullName = member["fullName"]
+      bioguide = member["bioguide"]
     entry = {
       "id": row["DocID"],
       "txs": txs,
-      "member": member["fullName"],
+      "member": fullName,
       "date": row["FilingDate"]
     }
     _id = self.trades_db.insert_one(entry)
     _id = _id.inserted_id
-    self.congressmen_db.update_one(
-      {"_id": member["_id"]},
-      {"$push": {"txs": _id}}
-    )
-    return member["bioguide"]
+    if(member):
+      self.congressmen_db.update_one(
+        {"_id": member["_id"]},
+        {"$push": {"txs": _id}}
+      )
+    return bioguide
+  
+  def tempValues(self, tx):
+    tx["BuyPrice"] = float('nan')
+    tx["FilePrice"] = float('nan')
+    tx["MonitorPrice"] = float('nan')
+    tx["Change"] = float('nan')
+    tx["30DC"] = float('nan')
+    tx["YTD"] = float('nan')
+    tx["Sector"] = None
+    return tx
