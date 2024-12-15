@@ -9,9 +9,10 @@ if __name__ == "__main__":
   logger = logging.basicConfig(level=logging.INFO)
 
   # set up mongo client
-  client = MongoClient("mongodb://mongo:27017")
+  client = MongoClient("mongodb://localhost:27017")
+  # client = MongoClient("mongodb://mongo:27017")
   db = client["insider"]
-  file_instance = Filings(db, 2024, logger)
+  file_instance = Filings(db, 2023, logger)
   while True:
     logging.info("Starting periodic check")
     file_instance.start()

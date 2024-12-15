@@ -21,6 +21,14 @@ class TxInfo:
     avg = float((data["Close"].iloc[0] + data["Open"].iloc[0]).iloc[0]) / 2
     return round(avg, 2)
   
+  def getStockInfo(self, ticker, start, end):
+    start = self.convertDateFormat(start)
+    end = self.convertDateFormat(end, delta=1)
+    data = yf.download(ticker, start=start, end=end, auto_adjust=True)
+    if data.empty:
+      return float('nan')
+    return data
+  
   def getDetails(self, ticker):
     try:
       info = yf.Ticker(ticker).get_info()

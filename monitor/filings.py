@@ -9,7 +9,7 @@ from pypdf import PdfReader
 from webhook import Webhook
 from txInfo import TxInfo
 from fuzzywuzzy import fuzz
-from utility import closestWeekday
+from utility import closestWeekday, spotDate, convertDateFormat
 from error import Error
 
 class Filings:
@@ -19,7 +19,8 @@ class Filings:
     self.congressmen_db = db.congressmens
     self.today = date.today().strftime("%m/%d/^y")
     self.url = f"https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{year}FD.txt"
-    self.fileDocURL = "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2024/{docID}.pdf"
+    self.fileDocURL = f"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}" + "/{docID}.pdf"
+    # self.fileDocURL = "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2024/{docID}.pdf"
     self.stockCode = "ST"
     self.titles = ["Mr", "Mrs", "Ms", "Miss", "Dr", "Prof"]
     self.middle_initial_pattern = r'\b[A-Z]\.\s*'
@@ -61,17 +62,15 @@ class Filings:
       return
     
     for i, row in self.df.iterrows():
-      try:
-        docID = row["DocID"]
-        lines = self.pullFiling(docID)
-        txs = self.isolateTxs(lines)
-        txs = self.parseTxs(txs)
-        txs = self.addDetailsToTx(txs)
-        bioguide = self.createTxEntry(txs, row)
-        current_dir = os.getcwd()
-        playsound(f"{current_dir}\\done.mp3")
-      except Exception as e:
-        Error().notify(e, docID)
+      # try:
+      docID = row["DocID"]
+      lines = self.pullFiling(docID)
+      txs = self.isolateTxs(lines)
+      txs = self.parseTxs(txs)
+      txs = self.addDetailsToTx(txs)
+      bioguide = self.createTxEntry(txs, row)
+      # except Exception as e:
+      #   Error().notify(e, docID)
 
       # committees = self.congressmen_db.find_one({ "bioguide": bioguide })["committees"]
       # Webhook().send(txs, row, bioguide, committees)
@@ -134,7 +133,7 @@ class Filings:
 
   def filterLatest(self):
     self.df.sort_values(by="FilingDate", ascending=False)
-    self.df = self.df[self.df["FilingDate"] == self.today]
+    # self.df = self.df[self.df["FilingDate"] == self.today]
     # self.df = self.df[self.df["FilingDate"] == "11/21/2024"]
     self.df = self.df[self.df["DocID"].astype(str).str.startswith('200')]
 
@@ -247,21 +246,40 @@ class Filings:
   
   def addDetailsToTx(self, txs):
     info = TxInfo()
-    today = closestWeekday(date.today()).strftime('%m/%d/%Y')
+    today = date.today().strftime('%m/%d/%Y')
     for tx in txs:
       if not tx["Ticker"]:
         print(f"Problem parsing tx for ticker ignoring the issue for now")
         tx = self.tempValues(tx)
         continue
-      tx["BuyPrice"] = info.getPriceOnDate(tx["Ticker"], tx["Bought"])
-      tx["FilePrice"] = info.getPriceOnDate(tx["Ticker"], closestWeekday(tx["Filed"]))
-      tx["MonitorPrice"] = info.getPriceOnDate(tx["Ticker"], today)
-      if tx["BuyPrice"] and tx["FilePrice"]:
-        tx["Change"] = 100 * ((tx["FilePrice"] - tx["BuyPrice"]) / tx["BuyPrice"])
-      else:
-        tx["Change"] = float('nan')
-      roi30, ytd, sector = info.getDetails(tx["Ticker"])
-      tx["30DC"], tx["YTD"], tx["Sector"] = roi30, ytd, sector
+      # end = spotDate(tx["Filed"], 180)
+      stockInfo = info.getStockInfo(tx["Ticker"], tx["Bought"], today)
+      if type(stockInfo) is float or stockInfo.empty:
+        print(f"Could not get stock info for {tx['Ticker']} ignoring the issue for now")
+        tx = self.tempValues(tx)
+        continue
+      spot7 = closestWeekday(convertDateFormat(tx["Bought"], delta=7))
+      spot30 = closestWeekday(convertDateFormat(tx["Bought"], delta=30))
+      spot90 = closestWeekday(convertDateFormat(tx["Filed"], delta=90))
+      spot180 = closestWeekday(convertDateFormat(tx["Bought"], delta=180))
+      filed = closestWeekday(convertDateFormat(tx["Filed"]))
+      buy = closestWeekday(convertDateFormat(tx["Bought"]))
+      tody = closestWeekday(convertDateFormat(today))
+      spot7_row = stockInfo.loc[spot7].iloc[0] if spot7 in stockInfo.index else None
+      spot30_row = stockInfo.loc[spot30].iloc[0] if spot30 in stockInfo.index else None
+      spot90_row = stockInfo.loc[spot90].iloc[0] if spot90 in stockInfo.index else None
+      spot180_row = stockInfo.loc[spot180].iloc[0] if spot180 in stockInfo.index else None
+      buy_row = stockInfo.loc[buy].iloc[0] if buy in stockInfo.index else None
+      filed_row = stockInfo.loc[filed].iloc[0] if filed in stockInfo.index else None
+      today_row = stockInfo.loc[tody].iloc[0] if tody in stockInfo.index else None
+      tx["BuyPrice"] = buy_row
+      tx["FilePrice"] = filed_row
+      tx["Spot7"] = spot7_row
+      tx["Spot30"] = spot30_row
+      tx["Spot90"] = spot90_row
+      tx["Spot180"] = spot180_row
+      tx["MonitorPrice"] = today_row
+      tx["Monitered"] = today
     return txs
       
   # returns the thomas_id of the congressmen
