@@ -19,8 +19,7 @@ class Filings:
     self.congressmen_db = db.congressmens
     self.today = date.today().strftime("%m/%d/^y")
     self.url = f"https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{year}FD.txt"
-    self.fileDocURL = f"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}" + "/{docID}.pdf"
-    # self.fileDocURL = "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2024/{docID}.pdf"
+    self.fileDocURL = f"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}/" + "{docID}.pdf"
     self.stockCode = "ST"
     self.titles = ["Mr", "Mrs", "Ms", "Miss", "Dr", "Prof"]
     self.middle_initial_pattern = r'\b[A-Z]\.\s*'
@@ -62,15 +61,15 @@ class Filings:
       return
     
     for i, row in self.df.iterrows():
-      # try:
-      docID = row["DocID"]
-      lines = self.pullFiling(docID)
-      txs = self.isolateTxs(lines)
-      txs = self.parseTxs(txs)
-      txs = self.addDetailsToTx(txs)
-      bioguide = self.createTxEntry(txs, row)
-      # except Exception as e:
-      #   Error().notify(e, docID)
+      try:
+        docID = row["DocID"]
+        lines = self.pullFiling(docID)
+        txs = self.isolateTxs(lines)
+        txs = self.parseTxs(txs)
+        txs = self.addDetailsToTx(txs)
+        bioguide = self.createTxEntry(txs, row)
+      except Exception as e:
+        Error().notify(e, docID)
 
       # committees = self.congressmen_db.find_one({ "bioguide": bioguide })["committees"]
       # Webhook().send(txs, row, bioguide, committees)
@@ -308,8 +307,9 @@ class Filings:
     tx["BuyPrice"] = float('nan')
     tx["FilePrice"] = float('nan')
     tx["MonitorPrice"] = float('nan')
-    tx["Change"] = float('nan')
-    tx["30DC"] = float('nan')
-    tx["YTD"] = float('nan')
-    tx["Sector"] = None
+    tx["Spot7"] = float('nan')
+    tx["Spot30"] = float('nan')
+    tx["Spot90"] = float('nan')
+    tx["Spot180"] = float('nan')
+    tx["Monitered"] = "N/A"
     return tx
