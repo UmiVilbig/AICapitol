@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build -t insider:1.0 .
+docker build -t aicapitol:1.0 .
